@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+"""Needs:
+python>=2.6
+python-pydot
+"""
+
+import os
+import sys
+import pydot
+import argparse
+import subprocess
+
+parser=argparse.ArgumentParser(description="""Draws graph of processes, visualising childhood relation and open descriptors, including pipes""")
+parser.add_argument('-n', '--name', default="", help="Only consider processes with this name.")
+parser.add_argument('-2', '--nostderr', action="store_true", default=False, help="Ignore stderr fd.")
+parser.add_argument('-P', '--pids', action="store_true", default=False, help="Read pids from stdin")
+parser.add_argument('-o', '--output', default="psgraph.png", help="Output file name")
+args=parser.parse_args()
+
+class Process:
+ def __init__(self, pid):
+  self.pid=pid
+  self.name=self.status()['Name']
+  self.ppid=int(self.status()['PPid'])
+ def status(self):
+  status={}
+  f = open(os.path.join(self._proc_path(), "status"))
+  for line in f:
+   p = map(lambda x: x.strip(), line.split(':', 1))
+   if(len(p) != 2): continue
+   status[p[0]]=p[1]
+  f.close()
+  return status
+ def fds(self):
+  fdpath = os.path.join(self._proc_path(), "fd")
+  fds = os.listdir(fdpath)
+  fdinfos = []
+  for fd in fds:
+   f = open(os.path.join(self._proc_path(), "fdinfo", fd))
+   fdinfo = {}
+   for line in f:
+    p = map(lambda x: x.strip(), line.split(':'))
+    if(len(p) != 2): continue
+    fdinfo[p[0]]=p[1]
+   fdinfos += [fdinfo]
+   f.close()
+  assert len(fds)==len(fdinfos), "can't get file descriptors correctly"
+  def stat(fd): return os.stat(os.path.join(fdpath, fds[i]))
+  def name(fd):
+   return os.readlink(os.path.join(fdpath, fds[i]))
+  return [(fds[i], name(fds[i]), stat(fds[i]), fdinfos[i]) for i in xrange(len(fds))]
+ def __str__(self):
+  return "%d (<-%d): %s" % (self.pid,self.ppid,self.name)
+ def _proc_path(self):
+  return "/proc/%d/" % self.pid
+
+def getPids():
+ if args.pids:
+  return [int(line) for line in sys.stdin]
+ else:
+  try: out=subprocess.check_output(['pgrep', args.name])
+  except subprocess.CalledProcessError:
+   sys.stderr.write("pgrep error. (perhaps could not find any process?)\n")
+   sys.exit(1)
+  return map(int, out.strip().split('\n'))
+
+g=pydot.Dot(graph_type='digraph')
+pid2process={}
+pid2node={}
+fdname2node={}
+
+# Nodes for processes
+for p in getPids():
+ pid2process[p]=Process(p)
+ c="black"
+ if(pid2process[p].status()['State'][0]=='Z'): c="red"
+ pid2node[p]=pydot.Node("%s (%d)" % (pid2process[p].name, p), shape='box', style='rounded', color=c)
+ g.add_node(pid2node[p])
+
+# Nodes for files/devices/pipes
+for p in pid2process.itervalues():
+ for fd in p.fds():
+  if args.nostderr and fd[0]=="2": continue
+  if fd[1] not in fdname2node:
+   fdname2node[fd[1]]=pydot.Node(fd[1].translate(None, ':'))
+   g.add_node(fdname2node[fd[1]])
+  # TODO: set node look basing on file type
+
+# Edges for parentship
+for p in pid2process.itervalues():
+ if(p.ppid in pid2node):
+  g.add_edge(pydot.Edge(pid2node[p.ppid], pid2node[p.pid], style='dashed'))
+
+# Edges for fds
+for p in pid2process.itervalues():
+ for fd in p.fds():
+  if args.nostderr and fd[0]=="2": continue
+  if(fd[3]['flags'][1] == "0"):
+   g.add_edge(pydot.Edge(fdname2node[fd[1]], pid2node[p.pid], headlabel=fd[0]))
+  else:
+   g.add_edge(pydot.Edge(pid2node[p.pid], fdname2node[fd[1]], taillabel=fd[0]))
+
+# graph ready
+g.write_png(args.output)
