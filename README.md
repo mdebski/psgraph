@@ -6,4 +6,4 @@ Simple script to draw a graph of processes, visualising childhood relation and o
 * pydot
 
 # Usage
- ./psgraph -n \<process_name\> && eog psgraph.png
+ ./psgraph -n \<process_name\> && xdg-open psgraph.png
