@@ -26,7 +26,7 @@ class Process:
   status={}
   f = open(os.path.join(self._proc_path(), "status"))
   for line in f:
-   p = map(lambda x: x.strip(), line.split(':', 1))
+   p = [x.strip() for x in line.split(':', 1)]
    if(len(p) != 2): continue
    status[p[0]]=p[1]
   f.close()
@@ -39,16 +39,16 @@ class Process:
    f = open(os.path.join(self._proc_path(), "fdinfo", fd))
    fdinfo = {}
    for line in f:
-    p = map(lambda x: x.strip(), line.split(':'))
+    p = [x.strip() for x in line.split(':')]
     if(len(p) != 2): continue
     fdinfo[p[0]]=p[1]
    fdinfos += [fdinfo]
    f.close()
   assert len(fds)==len(fdinfos), "can't get file descriptors correctly"
-  def stat(fd): return os.stat(os.path.join(fdpath, fds[i]))
+  def stat(fd): return os.stat(os.path.join(fdpath, fd))
   def name(fd):
-   return os.readlink(os.path.join(fdpath, fds[i]))
-  return [(fds[i], name(fds[i]), stat(fds[i]), fdinfos[i]) for i in xrange(len(fds))]
+   return os.readlink(os.path.join(fdpath, fd))
+  return [(fds[i], name(fds[i]), stat(fds[i]), fdinfos[i]) for i in range(len(fds))]
  def __str__(self):
   return "%d (<-%d): %s" % (self.pid,self.ppid,self.name)
  def _proc_path(self):
@@ -62,7 +62,9 @@ def getPids():
   except subprocess.CalledProcessError:
    sys.stderr.write("pgrep error. (perhaps could not find any process?)\n")
    sys.exit(1)
-  return map(int, out.strip().split('\n'))
+  out = out.strip()
+  out = out.decode("utf-8").split('\n')
+  return [int(p) for p in out]
 
 g=pydot.Dot(graph_type='digraph')
 pid2process={}
@@ -78,21 +80,21 @@ for p in getPids():
  g.add_node(pid2node[p])
 
 # Nodes for files/devices/pipes
-for p in pid2process.itervalues():
+for p in pid2process.values():
  for fd in p.fds():
   if args.nostderr and fd[0]=="2": continue
   if fd[1] not in fdname2node:
-   fdname2node[fd[1]]=pydot.Node(fd[1].translate(None, ':'))
+   fdname2node[fd[1]]=pydot.Node(fd[1].replace(':', ''))
    g.add_node(fdname2node[fd[1]])
   # TODO: set node look basing on file type
 
 # Edges for parentship
-for p in pid2process.itervalues():
+for p in pid2process.values():
  if(p.ppid in pid2node):
   g.add_edge(pydot.Edge(pid2node[p.ppid], pid2node[p.pid], style='dashed'))
 
 # Edges for fds
-for p in pid2process.itervalues():
+for p in pid2process.values():
  for fd in p.fds():
   if args.nostderr and fd[0]=="2": continue
   if(fd[3]['flags'][1] == "0"):
